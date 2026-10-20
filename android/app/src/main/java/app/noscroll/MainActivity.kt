@@ -2,6 +2,7 @@ package app.noscroll
 
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
@@ -84,7 +85,7 @@ class MainActivity : AppCompatActivity() {
         }
         body.addView(preview, buttonLayout())
         body.gap(10)
-        accessibility = NativeViews.button(this, "Accessibility settings", false, ::openAccessibility)
+        accessibility = NativeViews.button(this, "NoScroll accessibility settings", false, ::openAccessibility)
         body.addView(accessibility, buttonLayout())
         body.gap(24)
         lastBlocked = NativeViews.label(this, "", 13f, NativeViews.muted)
@@ -141,7 +142,7 @@ class MainActivity : AppCompatActivity() {
         when {
             !authorized -> {
                 state.text = "Accessibility is off"
-                detail.text = "Enable NoScroll under Installed apps in Android Accessibility settings."
+                detail.text = "Open NoScroll's accessibility page and turn on the service."
             }
             service == null -> {
                 state.text = "Waiting for accessibility"
@@ -179,16 +180,35 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Allow NoScroll accessibility?")
             .setMessage("Android grants this service broad access to your interface. NoScroll uses it to inspect element IDs, layout bounds and selection state inside Instagram and YouTube, then cover detected Reels and Shorts.\n\nIt does not read message text, record the screen or send data anywhere. The Go back button requests one Android Back action. You can pause blocking here or turn the service off in Settings at any time.\n\nOn Samsung, Android may require App info → ⋮ → Allow restricted settings before this sideloaded service can be enabled. Only do this if you trust this build.")
             .setNegativeButton("Not now", null)
-            .setPositiveButton("Open settings") { _, _ -> openAccessibility() }
+            .setPositiveButton("Open NoScroll settings") { _, _ -> openAccessibility() }
             .show()
     }
 
     private fun openAccessibility() {
-        try {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "Open Accessibility in your phone's Settings.", Toast.LENGTH_LONG).show()
+        val component = ComponentName(this, FeedBlockerService::class.java).flattenToString()
+        val highlightKey = ":settings:fragment_args_key"
+        val highlightArgs = Bundle().apply { putString(highlightKey, component) }
+        val destinations = listOf(
+            // System/OEM intent, not a public SDK constant. AOSP consumes a flattened
+            // String under Intent.EXTRA_COMPONENT_NAME, not a ComponentName Parcelable.
+            Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+                .putExtra(Intent.EXTRA_COMPONENT_NAME, component),
+            // Settings implementations may ignore these optional highlight hints.
+            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                .putExtra(highlightKey, component)
+                .putExtra(":settings:show_fragment_args", highlightArgs),
+        )
+        for (destination in destinations) {
+            try {
+                startActivity(destination)
+                return
+            } catch (_: ActivityNotFoundException) {
+                // Try the general list if this OEM does not expose the details page.
+            } catch (_: SecurityException) {
+                // Some OEMs expose the details action but restrict third-party callers.
+            }
         }
+        Toast.makeText(this, "Open Settings → Accessibility → Installed apps → NoScroll.", Toast.LENGTH_LONG).show()
     }
 
     override fun onResume() {

@@ -40,13 +40,13 @@ cd android
 
 Windows Command Prompt/PowerShell can use `gradlew.bat` instead.
 
-APK: `android/app/build/outputs/apk/debug/app-debug.apk`. It is debug-signed for local testing, not a production release. Package `app.noscroll`, version code 2, version `0.2.0-native`, Android 8 or later. Using the same local debug key allows an upgrade from the earlier wrapper build.
+APK: `android/app/build/outputs/apk/debug/app-debug.apk`. It is debug-signed for local testing, not a production release. Package `app.noscroll`, version code 3, version `0.2.1-native`, Android 8 or later. Using the same local debug key allows an upgrade from the earlier wrapper build.
 
 ## First phone test
 
 1. Connect the phone, enable USB debugging, and explicitly authorize this computer.
 2. Install with `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`.
-3. Open NoScroll and read the permission disclosure before enabling its Accessibility service.
+3. Open NoScroll and read the permission disclosure. The setup button tries to open NoScroll's service page directly. If the phone rejects that shortcut, it opens the Accessibility list with a NoScroll highlight hint. Samsung/other OEMs decide whether the hint is honored. Enabling the service always requires your explicit confirmation.
 4. If Android blocks enabling a sideloaded service, review App info → menu → Allow restricted settings. Only allow this if you trust the build. NoScroll never enables its own service or changes secure settings.
 5. Use **Preview blocking screen** to test overlay presentation and dismissal. A preview is not a detector test.
 6. Open Shorts and Reels through tabs, swipes, shared links and notifications. Verify the shield, Back, Home, notification shade and normal app screens.

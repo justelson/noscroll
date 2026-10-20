@@ -1,211 +1,66 @@
-# NoScroll
+# NoScroll, native Android fork
 
-![NoScroll — the home screen, the setup screen, and Instagram with no Reels tab](docs/img/hero.jpg)
+Block Instagram Reels and YouTube Shorts inside the official apps. No browser wrapper, launcher, timers or account login.
 
-**Use Instagram and YouTube without short-form video.** Free, open source, no paywall, no ads,
-no analytics.
+**Status: first native test build.** The detector signatures are starter rules, not yet verified against the app versions on the target phone. A successful build or shield preview does not prove that a real feed is detected.
 
-NoScroll removes Reels, Shorts, Explore and algorithmically suggested content — and keeps the
-parts you actually opened the app for: messages, the people you follow, and posting. When a
-friend sends you a reel you can watch *that* video. You just can't scroll to the next one.
+Fork of [Blueturboguy07/noscroll](https://github.com/Blueturboguy07/noscroll), rewritten as an Android-only application. Upstream history and the AGPL-3.0-or-later licence are retained.
 
-Eight services: **Instagram** and **YouTube** are probe-verified against the live sites;
-**X, TikTok, Facebook, LinkedIn, Snapchat** and **Reddit** ship as beta and are labelled so in
-the app.
+## Behavior
 
-> Status: **pre-release.** The engine, rule bundles, both native shells and the shield layers are
-> written and tested, and both the iPhone and Android apps build and run. Not yet submitted to either store —
-> see [What's not done](#whats-not-done).
+1. You explicitly enable the NoScroll Accessibility service in Android Settings.
+2. The service identifies the foreground application. It traverses UI nodes only inside `com.instagram.android` and `com.google.android.youtube`.
+3. Exact view-resource IDs, visibility, selected state and layout bounds identify a short-video viewer. Generic text or "reel" substring matching is not used.
+4. A detected feed is covered by an opaque, touchable `TYPE_ACCESSIBILITY_OVERLAY` window. Touches cannot reach the feed through the shield.
+5. **Go back** requests one Android Back action. The service does not autonomously dispatch gestures or repeatedly navigate.
+6. Leaving the viewer, switching apps, pausing, disabling a target, or losing service access removes the overlay. System windows must remain usable.
 
----
+The shield does **not** pause or mute the underlying player. Audio may continue until you leave the feed. Unknown layouts fail open rather than blocking unrelated app screens. Detection is reactive, so brief exposure is possible before a match. This is not tamper-proof parental control.
 
-## How it works
+Normal YouTube videos, Instagram DMs, profiles and ordinary navigation are negative cases that must be checked on each supported release. Shared links and notifications need explicit device tests too.
 
-Two layers. The second is the one that matters.
+## Privacy and permission boundary
 
-**1. The wrapper.** NoScroll loads the platforms' own mobile websites in an embedded browser and
-injects a small engine that hides or removes the endless surfaces. Your session cookies stay on
-your device.
+Android accessibility access is broad. This implementation reads view IDs, bounds, visibility and selection state from the two target apps, not node text, content descriptions, messages, passwords or screenshot pixels. It does not persist accessibility trees. The only detection history stored is the name of the most recently blocked service.
 
-**2. The shield.** A wrapper on its own enforces nothing — you'd just open Safari. So NoScroll also
-shields the real Instagram and YouTube apps at the OS level (iOS Screen Time / FamilyControls,
-Android AccessibilityService), which makes the stripped version the way in rather than a
-suggestion.
+There is no `INTERNET`, `SYSTEM_ALERT_WINDOW`, VPN, notification-listener or gesture-injection permission. Accessibility overlays use the accessibility grant itself. Service entry is protected by `BIND_ACCESSIBILITY_SERVICE`.
 
-```
-engine/    TypeScript → one IIFE. The entire blocking implementation.
-rules/     Signed JSON rule bundles. Data, not code — updatable without an app release.
-ios/       Swift. WKWebView shell + FamilyControls + three Screen Time extensions
-           + a WidgetKit extension (home-screen shortcuts via noscroll://open/<service>).
-android/   Kotlin. WebView shell + AccessibilityService.
-probe/     Playwright smoke tests, run every 6h against live Instagram and YouTube.
-tools/     Bundle signing, cross-language canonicalisation check, engine sync.
-```
+The service receives foreground/window events outside the two apps solely to dismiss stale overlays. It does not traverse other apps' contents. UI scans are coalesced and bounded; recurring checks run only while the shield or its ten-second preview is visible.
 
-The engine is byte-identical on both platforms. Everything platform-specific stays in the shells.
-
-### The app
-
-**iOS.** First run is a narrative, not a checklist: how much you scroll → how old you are →
-**your life in weeks**, with every band and the percentage derived from your two answers (at 18,
-scrolling 4.8h of a 5h daily surplus, that is 96% of your remaining free time). Then the
-permissions, then out.
-
-Home is one service at a time, with today's usage, that service's switches, and a five-tab shell —
-Sleep, everything-blocked, Home, Shield, You. A WidgetKit extension puts the same services on your
-home screen, opening through NoScroll via `noscroll://open/<service>`.
-
-**Android does not have this UI yet.** There is no onboarding narrative, no five-tab shell, and no
-widget. What exists: the wrapper (Instagram and YouTube, with a button to switch between them) and
-the shield, plus a Status screen showing whether the accessibility permission is granted and which
-apps are shielded — reachable from a button in the wrapper, not a settings tab. Fresh installs
-shield Instagram and YouTube by default the same as iOS does. Building Android up to the same
-onboarding/shell UI iOS has is open work, not a bug — see the install guide, which should say so at
-the point a user would otherwise expect to see it.
-
-### Rules are data
-
-Every competitor in this category hardcodes CSS selectors and patches them reactively, which is
-why they visibly leak. NoScroll ships selectors as an **ed25519-signed JSON bundle** fetched at
-runtime with a three-tier fallback — remote → cached → baked into the binary — so a cold first
-launch with no network still blocks, and an upstream redesign is fixed in minutes instead of an
-App Store review cycle.
-
-Every rule declares `expectMin`. The engine counts what it actually matched and reports anomalies,
-so a rotted selector raises an alert before a user notices.
-
-**Rules are open to pull requests.** If Instagram changes something and NoScroll starts leaking,
-you can fix it yourself — see [docs/RULES.md](docs/RULES.md).
-
----
+No Play Store policy approval is claimed. Distribution through a store would require a separate policy review and accurate accessibility declarations.
 
 ## Build
 
-Use pnpm 9, or 10.5 or newer. pnpm 10 and 11 block dependency build scripts by
-default; `engine/pnpm-workspace.yaml` pre-approves the one dependency that needs
-one (esbuild, whose postinstall links its native binary). pnpm 10.4 and older
-read that approval from a different place and will still print
-`[ERR_PNPM_IGNORED_BUILDS]` — upgrade pnpm rather than working around it.
+Requirements: JDK 17 or 21, Android SDK platform/build-tools 34, and the checked-in Gradle wrapper. No Node, pnpm, JavaScript engine or signing server is needed.
 
-```bash
-# Engine — 42 tests, no device needed
-cd engine && pnpm install && pnpm test && pnpm build
-
-# Sync the built engine + rules into both app targets
-./tools/sync-engine.sh          # macOS / Linux / Git Bash
-npm run sync-engine             # any OS, incl. Windows PowerShell / cmd.exe — no bash needed
-# or directly:
-node tools/sync-engine.mjs      # same script npm run sync-engine calls
-tools/sync-engine.ps1           # native PowerShell equivalent (Windows)
-
-# iOS — pure logic tests on the host, then the app itself
-cd ios/NoScrollCore && swift test
-open ios/NoScroll.xcodeproj      # pick your Apple ID under Signing, then Run
-
-# Android — unit tests + a real APK
-cd android && ./gradlew :app:testDebugUnitTest :app:assembleDebug
-
-# Live probes against real Instagram and YouTube
-cd probe && pnpm install && pnpm exec playwright install chromium && pnpm probe
+```sh
+cd android
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon
 ```
 
-Rule bundles are signed. To work on them you need your own keypair:
+Windows Command Prompt/PowerShell can use `gradlew.bat` instead.
 
-```bash
-node tools/sign-bundle.mjs keygen           # writes keys/ (gitignored)
-node tools/sign-bundle.mjs sign rules/*.json
-swift tools/verify-canonical.swift          # Node and Swift must agree byte for byte
-```
+APK: `android/app/build/outputs/apk/debug/app-debug.apk`. It is debug-signed for local testing, not a production release. Package `app.noscroll`, version code 2, version `0.2.0-native`, Android 8 or later. Using the same local debug key allows an upgrade from the earlier wrapper build.
 
----
+## First phone test
 
-## Nothing is forced on
+1. Connect the phone, enable USB debugging, and explicitly authorize this computer.
+2. Install with `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`.
+3. Open NoScroll and read the permission disclosure before enabling its Accessibility service.
+4. If Android blocks enabling a sideloaded service, review App info → menu → Allow restricted settings. Only allow this if you trust the build. NoScroll never enables its own service or changes secure settings.
+5. Use **Preview blocking screen** to test overlay presentation and dismissal. A preview is not a detector test.
+6. Open Shorts and Reels through tabs, swipes, shared links and notifications. Verify the shield, Back, Home, notification shade and normal app screens.
+7. Test pause, each platform switch and service revocation. Record misses and false positives, then adjust exact signatures against the installed app versions.
 
-Every block is a switch you own. The core ones — Reels, Shorts, Explore,
-suggested posts — arrive switched **on**, so a fresh install works with no
-setup, and first-run onboarding shows you every switch once so nothing is a
-surprise later. But you can turn any of them off, at any time, in Settings.
+Do not collect or commit full accessibility dumps containing personal messages. If a signature needs inspection, inspect only the target viewer and retain the minimum resource IDs/geometry needed for a test fixture.
 
-The product has an opinion. It doesn't take the choice away.
+## Source map
 
-## The one rule that is not negotiable
+- `MainActivity.kt`: native setup, explicit disclosure, platform switches and pause.
+- `blocker/FeedDetector.kt`: pure Kotlin resource-ID rules and overlay state policy.
+- `blocker/FeedBlockerService.kt`: window selection, bounded UI-node collection and lifecycle.
+- `blocker/FeedShield.kt`: opaque overlay and user-requested Back.
+- `blocker/BlockerSettings.kt`: local switches and last-blocked service name.
+- `src/test`: synthetic detector and state-policy regression tests. Real app fixtures remain pending device verification.
 
-```
-The engine MUST NOT hide, remove, restyle, or observe any node on an auth surface.
-```
-
-Hard-coded in [`engine/src/authguard.ts`](engine/src/authguard.ts), not overridable by any rule
-bundle, and enforced by a CI test that fails the build.
-
-Two reasons. A hiding rule that swallows Instagram's own security interstitial bricks login with
-no visible error. And Apple 5.1.1(vi) treats credential harvesting as *developer-program removal*
-— refusing to look at a login page at all is what keeps NoScroll provably clear of it.
-
-Verified against the real login page by the live probe, not just in a test DOM.
-
----
-
-## Privacy
-
-Two tiers, stated precisely, because vagueness here is what makes people call a wrapper a phishing
-app:
-
-1. **Platform session cookies never leave your device.** There is no backend, no proxy, and no
-   server-side cache of anything you look at. The repo is public, so this is auditable rather than
-   a promise.
-2. **Rule-health telemetry is opt-in and anonymous.** It reports `{ruleId, expected, actual,
-   bundleVersion}` — never a URL, never page content. See
-   [`engine/src/bridge.ts`](engine/src/bridge.ts).
-
-No analytics SDK. No ad pixel. No crash reporter carrying identifiers. No tracking on the website
-or the legal pages.
-
-Full detail: [docs/PRIVACY.md](docs/PRIVACY.md).
-
----
-
-## What's not done
-
-Honestly, because a feature list that overpromises is the thing this project is reacting to:
-
-- **Not submitted to either store.** The iOS `com.apple.developer.family-controls` entitlement is
-  gated by Apple, takes days-to-weeks, and can be denied — see [docs/ENTITLEMENT.md](docs/ENTITLEMENT.md).
-  It has to be granted before the shield layer can run on a device.
-- **The three Screen Time extensions are not yet targets in the Xcode project.** The app target
-  builds and runs today; the shield extensions are written and typecheck against the iOS SDK, but
-  adding them as targets is blocked on the entitlement above, since they cannot run without it.
-- **Android rule-bundle signature verification is not implemented.** iOS verifies; Android
-  currently reads bundles from assets/cache without checking the signature. Do not ship without it.
-- **Android has no onboarding, five-tab shell, or widget.** See "The app" above. It has the
-  wrapper, a two-service switch, shielding on by default, and a Status screen — not the iOS
-  experience. Building it out is open work.
-- **No notifications.** WKWebView cannot receive web push, and shielding an app suppresses that
-  app's own notifications too. This is a scoped-out non-goal, not a bug.
-- **Screen Time is off by default even on a device.** The Family Controls entitlement is opt-in
-  (`NOSCROLL_ENTITLEMENTS`) because wiring it unconditionally breaks signing for any account
-  without Apple's approval. Without it, "Grant access" explains why rather than failing with
-  Apple's `Couldn't communicate with a helper application`.
-- **Screen Time does not work in the iOS Simulator at all.** The frameworks are non-functional
-  there, so the permission prompt can never appear; the app says so rather than failing quietly.
-  Testing that flow needs a real device *and* the entitlement below.
-- **Six of the eight services are beta.** Instagram and YouTube are probe-verified against the
-  live sites; X, TikTok, Facebook, LinkedIn, Snapchat and Reddit have researched rules that no
-  probe has confirmed yet. The app labels them BETA rather than listing eight logos as if they
-  were equal.
-- **Per-app usage and the app picker need the entitlement.** Usage reads "—" instead of a number
-  until a DeviceActivityReport extension can run.
-- **Posting Reels, stories, DM media, calls** — not available on the mobile web, so not available
-  here. Post Mode temporarily lifts the shield so you can post in the real app.
-- **The logged-in probe is skipped** unless you supply `PROBE_IG_STATE`. Use a dedicated probe
-  account, never a personal one.
-
----
-
-## Licence
-
-AGPL-3.0-or-later. See [LICENCE](LICENSE).
-
-Rule bundles seeded from MIT-licensed filter lists — `gijsdev/ublock-hide-yt-shorts` and
-`BevizLaszlo/UBlock-Filters-for-Social-Media` — with provenance recorded per rule.
-
-NoScroll is not affiliated with, endorsed by, or connected to Meta, Instagram, Google or YouTube.
+See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md). Not affiliated with Meta, Instagram, Google or YouTube.

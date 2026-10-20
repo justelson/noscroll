@@ -1,9 +1,0 @@
-{
-  "name": "noscroll",
-  "private": true,
-  "version": "0.0.0",
-  "description": "Repo-root convenience scripts. The real packages are engine/ and probe/.",
-  "scripts": {
-    "sync-engine": "node tools/sync-engine.mjs"
-  }
-}
